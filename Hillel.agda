@@ -97,28 +97,34 @@ module Unique where
     | (Σ xs[0..i]) - (Σ xs[i..|xs|]) |
   in O(n) time and space
 
-  I recall a similar problem was discussed by Guy L. Steel, see here
+  As a sidenote, I recall a similar problem was discussed by Guy L. Steel, see here
       https://www.youtube.com/watch?v=ftcIcn8AmSY
-  The key trick is to notice that forward and backwards sums can be
-  computed seperately, before you go about calculating their difference.
+  I started off with an approach like this, but worked out an even better way
 }-}
-module Fulcrum where  
-  open import Data.Product renaming (proj₁ to fst; proj₂ to snd) using (Σ; _,_)
+module Fulcrum where
+  open import Agda.Primitive using (_⊔_; lzero)
+  
+  open import Data.Product renaming (proj₁ to fst; proj₂ to snd) using (Σ; _,_; ∃; _×_)
 
-  open import Data.Nat using (ℕ; _≤_; zero; suc; _≤?_; _≟_; _>_)
+  open import Data.Nat using (ℕ; _≤_; zero; suc; _≤?_; _≟_; _>_; _<″_; _≤″_) renaming (_+_ to _ℕ+_)
   open import Data.Nat.Properties using (≰⇒>)
   
-  open import Data.Integer using (ℤ; _-_; ∣_∣)
-  open import Data.Integer.Properties using (+-0-isCommutativeMonoid)
+  open import Data.Integer using (ℤ; _+_; _-_; ∣_∣)
+  open ℤ renaming (pos to +_)
+  open import Data.Integer.Properties using (+-comm; +-assoc)
+
+  open import Data.Sign using (Sign)
   
-  open import Data.Vec using (Vec; []; _∷_; lookup; reverse; zipWith; map; [_]; _[_]=_; here; there)
+  open import Data.Vec using (Vec; []; _∷_; lookup; reverse; zipWith; map; [_]; _[_]=_; here; there; take; drop; foldr)
+  open import Data.Vec.Properties using ()
   
-  open import Data.Fin using (Fin; zero; suc; raise; fromℕ)
+  open import Data.Fin using (Fin; zero; suc; raise; fromℕ≤″)
   
   open import Algebra using (Monoid; CommutativeMonoid)
   
   open import Relation.Nullary using (Dec; yes; no)
   open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+  open import Relation.Binary.HeterogeneousEquality using (_≅_; refl)
 
 
   -- A proof that an element is minimal, from xs, and its location
@@ -147,34 +153,46 @@ module Fulcrum where
   isMin-to-Fin (keep m _) | i , p = (suc i) , (there p)
   isMin-to-Fin (new m _) = zero , here
 
+
+
+  take≤″ : ∀ {a} {A : Set a}  ({n} m : ℕ) → m ≤″ n → Vec A n → Vec A m
+  take≤″ m (_≤″_.less-than-or-equal refl) xs = take m xs
+
+  lookup<″ : ∀ {a} {A : Set a} ({n} m : ℕ) → m <″ n → Vec A n → A
+  lookup<″ zero (_≤″_.less-than-or-equal refl) (x ∷ xs) = x
+  lookup<″ (suc m) (_≤″_.less-than-or-equal refl) (x ∷ xs) = lookup<″ m (_≤″_.less-than-or-equal refl) xs
+
   -- now on to fulcrum values
-  -- a bit of kit first
-  module _ {c ℓ} (M : Monoid c ℓ) where
-    open Monoid M renaming (Carrier to A)
 
-    -- A sort of generalised fold
-    -- For each i, gives `fold _∙_ xs[0..i]`
-    scan : {n : ℕ} → Vec A n → Vec A n
-    scan xs = scan-tailrec ε xs
-      where
-        scan-tailrec : {n : ℕ} → A → Vec A n  → Vec A n
-        scan-tailrec acc [] = []
-        scan-tailrec acc (x ∷ xs) = let x' = acc ∙ x
-                                    in x' ∷ scan-tailrec x' xs
+  -- the given definition of fulcrum values
+  fv : (m {n} : ℕ) (xs : Vec ℤ (suc n)) → m <″ (suc n) → ℕ
+  fv m xs (Data.Nat.less-than-or-equal refl) = ∣ foldr _ _+_ (+ 0) (take (suc m) xs) - foldr _ _+_ (+ 0) (drop (suc m) xs) ∣
 
-  -- in particular, we care about the sum prefix
-  sum-prefix : ∀ {n} → Vec ℤ n → Vec ℤ n
-  sum-prefix = scan (CommutativeMonoid.monoid (record { isCommutativeMonoid = +-0-isCommutativeMonoid }))
+  -- in particular, for pairs of values
+  fv-pair : (m {n} : ℕ) (xs : Vec ℤ (suc n)) → m <″ (suc n) → ℤ × ℤ
+  fv-pair m xs (Data.Nat.less-than-or-equal refl) = foldr _ _+_ (+ 0) (take (suc m) xs) , foldr _ _+_ (+ 0) (drop (suc m) xs)
+
+
+  -- this is an unfold!
+  fv-pair₀ : {n : ℕ} (xs : Vec ℤ (suc n)) → ℤ × ℤ
+  fv-pair₀ (x ∷ xs) = x , (foldr _ _+_ (+ 0) xs)
+
+  fv-pair₊ : {n : ℕ} → ℤ → ℤ × ℤ → ℤ × ℤ
+  fv-pair₊ x (a , b) = a + x , b - x
+
+
+  -- still working out how to use this fact...
+  generate-fv-pairs : {n : ℕ} → Vec ℤ n → Vec (ℤ × ℤ) n
+  generate-fv-pairs xs = {!!}
+
+
 
   -- we can compute the value of _every_ fv, in 𝓞(n) time and space, and return the list of all of them
-  -- (Because I'm doing a bit of trickery here, I probably should prove that this is a correct implementation of fv, but I'll leave that for now)
-  every-fv : ∀ {n} → Vec ℤ n → Vec ℕ n
-  every-fv xs = let forward  = sum-prefix xs                -- 𝓞(n)
-                    -- a better list representation would make this even faster, but reverse is still linear
-                    backward = sum-prefix (reverse xs)      -- 𝓞(n) + 𝓞(n) = 𝓞(n)
-                    diffs    = zipWith _-_ forward backward -- 𝓞(n)
-                    fvs      = map ∣_∣ diffs                -- 𝓞(n)
-                 in fvs
+  every-fv : {n : ℕ} → Vec ℤ n → Vec ℕ n
+  every-fv {n} xs = let pairs = generate-fv-pairs xs          -- 𝓞(n)
+                        diffs = map (λ { (a , b) → a - b }) pairs -- 𝓞(n)
+                        fvs   = map ∣_∣ diffs                 -- 𝓞(n)
+                     in fvs
 
   -- IsMin is prima-facie evidence that z is in the list, and where it is in the list (see isMin-to-Fin)
   fulcrum : {m : ℕ} → (xs : Vec ℤ (suc m)) → Σ ℕ (λ z → IsMin z (every-fv xs))
