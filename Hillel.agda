@@ -154,6 +154,8 @@ module Zippers where
     | (Σ xs[0...i]) - (Σ xs[(i+1)..|xs|]) |
   in O(n) time and space
 
+  I solve the generalised version where we start with i = 0
+
   As a sidenote, I recall a similar problem was discussed by Guy L. Steel, see here
       https://www.youtube.com/watch?v=ftcIcn8AmSY
   I started off with an approach like this, but worked out an even better way
@@ -238,8 +240,8 @@ module Fulcrum where
                                          = refl
 
   -- in particular, we care about sum
-  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) renaming (foldm to sum)
-  open CommutMonoidFold (+-0-isCommutativeMonoid)
+  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) using () renaming (foldm to sum; foldm-lemma to sum-lemmaˡ)
+  open CommutMonoidFold (+-0-isCommutativeMonoid) using () renaming (commut-foldm-lemma to sum-lemmaʳ)
 
 
   -- the given definition of fulcrum values
@@ -247,6 +249,7 @@ module Fulcrum where
   fv m xs (Data.Nat.less-than-or-equal refl) = ∣ sum (take m xs) - sum (drop m xs) ∣
 
 
+  -- fvs a different way
   split-vec : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → Vec ℤ n × Vec ℤ k
   split-vec n xs refl = take n xs , drop n xs
 
@@ -258,22 +261,30 @@ module Fulcrum where
   fv' m xs (_≤″_.less-than-or-equal refl) | a , b = ∣ a - b ∣
 
 
-  -- store the first part in reverse order
-  fv-pair₀ : {n : ℕ} → Vec ℤ (suc n) → Vec ℤ 1 × Vec ℤ n
-  fv-pair₀ (x ∷ xs) = x ∷ [] , xs
-                               
-  fv-pair₊ : {n a b : ℕ} → a ℕ+ (suc b) ≡ n → Vec ℤ a × Vec ℤ (suc b) → Vec ℤ (suc a) × Vec ℤ b
-  fv-pair₊ p (as , x ∷ bs) = x ∷ as , bs
+  -- here's a setup which generates all the pairs
+  -- (in a generic way so we get theorems for free)
+  module _ {a} {A : Set a} where
+    splits-pair₀ : {n : ℕ} → Vec A n → Vec A 0 × Vec A n
+    splits-pair₀ xs = [] , xs
 
-  module _ where
-    open import Data.Vec using (foldr)
-    
-    -- this is an unfold!
-    fv-pair'₀ : {n : ℕ} (xs : Vec ℤ (suc n)) → ℤ × ℤ
-    fv-pair'₀ (x ∷ xs) = x , (foldr _ _+_ (+ 0) xs)
+    splits-pair₊ : {a b : ℕ} → Vec A a × Vec A (suc b) → Vec A (suc a) × Vec A b
+    splits-pair₊ (as , x ∷ bs) = x ∷ as , bs
 
-    fv-pair'₊ : {n : ℕ} → ℤ → ℤ × ℤ → ℤ × ℤ
-    fv-pair'₊ x (a , b) = a + x , b - x
+
+  -- now, let's look at a similar (but rather overspecified) setup on ℤ
+  fv-pair₀ : (z : ℤ) → Σ (ℤ × ℤ) (λ { (a , b) → a ≡ (+ 0) × b ≡ z })
+  fv-pair₀ z = (+ 0 , z) , (refl , refl)
+
+  fv-pair₊ : {n : ℕ} {x a' b' : ℤ} → Σ (ℤ × ℤ) (λ { (a , b) → (a ≡ a') × (b ≡ x + b') }) → Σ (ℤ × ℤ) (λ { (a , b) → (a ≡ a' + x) × (b ≡ b') })
+  fv-pair₊ {_} {x} {a'} {b'} ((_ , _) , (refl , refl)) = (a' + x , b') , (refl , refl)
+
+  {-
+    A good question would be, why bother specifying the functions that much?
+
+    Well, if you look carefully, you might notice that the fv-pair functions are quite similar to splits-pair functions.
+    Indeed, the conditions on the fv-pair are analogous to the suc conditions on splits-pair, in the specific sense
+    that what we actually have here is a functor.
+  -}
 
 
   -- still working out how to use this fact...
