@@ -89,6 +89,63 @@ module Unique where
         here-refl : {x : X} {xs : List X} → Any (S DecSetoid.≈ x) (x ∷ xs)
         here-refl = here (IsEquivalence.refl (DecSetoid.isEquivalence S))
 
+module Zippers where
+  open import Data.Nat using (ℕ; zero; suc) renaming (_+_ to _ℕ+_)
+  open import Data.Nat.Properties using (+-suc; +-identityʳ)
+
+  open import Data.Vec using (Vec; []; _∷_; reverse; _++_; [_])
+
+  open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+  
+  -- Backwards and Forwards Vectors
+  Bwd : ∀ {a} (A : Set a) → ℕ → Set a
+  Bwd = Vec
+
+  pattern _∷▹_ xz x = x ∷ xz
+
+  Fwd : ∀ {a} (A : Set a)→ ℕ → Set a
+  Fwd = Vec
+
+  pattern _◃∷_ x xs = x ∷ xs
+
+  record Zipper {a} (A : Set a) (m n : ℕ) : Set a where
+    constructor _▹◃_
+    field
+      prev : Bwd A m
+      post : Fwd A n
+
+  infix 18 _▹◃_
+
+  module _ {a} {A : Set a} where
+    stepᵣ : {m n : ℕ} → Zipper A m (suc n) → Zipper A (suc m) n
+    stepᵣ (prev ▹◃ (x ◃∷ post)) = (prev ∷▹ x) ▹◃ post
+
+    stepₗ : {m n : ℕ} → Zipper A (suc m) n → Zipper A m (suc n)
+    stepₗ ((xs ∷▹ x) ▹◃ post) = xs ▹◃ (x ◃∷ post)
+
+    step-rl-id : {m n : ℕ} (xs : Zipper A (suc m) (suc n)) → stepₗ (stepᵣ xs) ≡ xs
+    step-rl-id ((prev ∷▹ xₗ) ▹◃ (xᵣ ◃∷ post)) = refl
+
+    step-lr-id : {m n : ℕ} (xs : Zipper A (suc m) (suc n)) → stepᵣ (stepₗ xs) ≡ xs
+    step-lr-id ((prev ∷▹ xₗ) ▹◃ (xᵣ ◃∷ post)) = refl
+
+    -- reverse, the slow way
+    reverse' : {n : ℕ} → Vec A n → Vec A n
+    reverse' [] = []
+    reverse' {suc n} (x ∷ xs) with xs ++ [ x ]
+    ... | xs' rewrite +-suc n 0 | +-identityʳ n = xs'
+
+    zipper-move-to-start :{m n : ℕ} (xs : Zipper A m n) → Zipper A 0 (m ℕ+ n)
+    zipper-move-to-start ([] ▹◃ post) = [] ▹◃ post
+    zipper-move-to-start {suc m} {n = n} z@((x ∷ prev) ▹◃ post) with zipper-move-to-start (stepₗ z)
+    ... | z' rewrite +-suc m n = z'
+
+    zipper-move-to-end : {m n : ℕ} (xs : Zipper A m n) → Zipper A (m ℕ+ n) 0
+    zipper-move-to-end {m} (prev ▹◃ []) rewrite +-identityʳ m = prev ▹◃ []
+    zipper-move-to-end {m} {suc n} z@(prev ▹◃ (x ∷ post)) with zipper-move-to-end (stepᵣ z)
+    ... | z' rewrite +-suc m n = z'
+
+
 
 {-}
   Fulcrum
@@ -106,8 +163,8 @@ module Fulcrum where
   
   open import Data.Product renaming (proj₁ to fst; proj₂ to snd) using (Σ; _,_; ∃; _×_)
 
-  open import Data.Nat using (ℕ; _≤_; zero; suc; _≤?_; _≟_; _>_; _<″_; _≤″_) renaming (_+_ to _ℕ+_)
-  open import Data.Nat.Properties using (≰⇒>)
+  open import Data.Nat using (ℕ; _≤_; zero; suc; _≤?_; _≟_; _>_; _<″_; _≤″_; _∸_) renaming (_+_ to _ℕ+_)
+  open import Data.Nat.Properties using (+-suc; +-identityʳ; ≰⇒>; ≤⇒≤″; m+n∸n≡m)
   
   open import Data.Integer using (ℤ; _+_; _-_; ∣_∣)
   open ℤ renaming (pos to +_)
@@ -115,10 +172,11 @@ module Fulcrum where
 
   open import Data.Sign using (Sign)
   
-  open import Data.Vec using (Vec; []; _∷_; lookup; reverse; zipWith; map; [_]; _[_]=_; here; there; take; drop; foldr)
+  open import Data.Vec using (Vec; []; _∷_; reverse; zipWith; map; [_]; _[_]=_; here; there; take; drop; _++_; foldr)
   open import Data.Vec.Properties using ()
   
-  open import Data.Fin using (Fin; zero; suc; raise; fromℕ≤″)
+  open import Data.Fin using (Fin; zero; suc; raise; fromℕ≤″; toℕ)
+  open import Data.Fin.Properties using (bounded)
   
   open import Algebra using (Monoid; CommutativeMonoid)
   
@@ -153,32 +211,35 @@ module Fulcrum where
   isMin-to-Fin (keep m _) | i , p = (suc i) , (there p)
   isMin-to-Fin (new m _) = zero , here
 
-
-
-  take≤″ : ∀ {a} {A : Set a}  ({n} m : ℕ) → m ≤″ n → Vec A n → Vec A m
-  take≤″ m (_≤″_.less-than-or-equal refl) xs = take m xs
-
-  lookup<″ : ∀ {a} {A : Set a} ({n} m : ℕ) → m <″ n → Vec A n → A
-  lookup<″ zero (_≤″_.less-than-or-equal refl) (x ∷ xs) = x
-  lookup<″ (suc m) (_≤″_.less-than-or-equal refl) (x ∷ xs) = lookup<″ m (_≤″_.less-than-or-equal refl) xs
-
   -- now on to fulcrum values
-
+     
   -- the given definition of fulcrum values
   fv : (m {n} : ℕ) (xs : Vec ℤ (suc n)) → m <″ (suc n) → ℕ
   fv m xs (Data.Nat.less-than-or-equal refl) = ∣ foldr _ _+_ (+ 0) (take (suc m) xs) - foldr _ _+_ (+ 0) (drop (suc m) xs) ∣
 
-  -- in particular, for pairs of values
-  fv-pair : (m {n} : ℕ) (xs : Vec ℤ (suc n)) → m <″ (suc n) → ℤ × ℤ
-  fv-pair m xs (Data.Nat.less-than-or-equal refl) = foldr _ _+_ (+ 0) (take (suc m) xs) , foldr _ _+_ (+ 0) (drop (suc m) xs)
 
 
-  -- this is an unfold!
-  fv-pair₀ : {n : ℕ} (xs : Vec ℤ (suc n)) → ℤ × ℤ
-  fv-pair₀ (x ∷ xs) = x , (foldr _ _+_ (+ 0) xs)
+  split-vec : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → Vec ℤ n × Vec ℤ k
+  split-vec n xs refl = take n xs , drop n xs
 
-  fv-pair₊ : {n : ℕ} → ℤ → ℤ × ℤ → ℤ × ℤ
-  fv-pair₊ x (a , b) = a + x , b - x
+
+
+  -- store the first part in reverse order
+  fv-pair₀ : {n : ℕ} → Vec ℤ (suc n) → Vec ℤ 1 × Vec ℤ n
+  fv-pair₀ (x ∷ xs) = x ∷ [] , xs
+                               
+  fv-pair₊ : {n a b : ℕ} → a ℕ+ (suc b) ≡ n → Vec ℤ a × Vec ℤ (suc b) → Vec ℤ (suc a) × Vec ℤ b
+  fv-pair₊ p (as , x ∷ bs) = x ∷ as , bs
+
+  module _ where
+    open import Data.Vec using (foldr)
+    
+    -- this is an unfold!
+    fv-pair'₀ : {n : ℕ} (xs : Vec ℤ (suc n)) → ℤ × ℤ
+    fv-pair'₀ (x ∷ xs) = x , (foldr _ _+_ (+ 0) xs)
+
+    fv-pair'₊ : {n : ℕ} → ℤ → ℤ × ℤ → ℤ × ℤ
+    fv-pair'₊ x (a , b) = a + x , b - x
 
 
   -- still working out how to use this fact...
