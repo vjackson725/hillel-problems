@@ -151,7 +151,7 @@ module Zippers where
   Fulcrum
 
   Find the i that minimises
-    | (Σ xs[0..i]) - (Σ xs[i..|xs|]) |
+    | (Σ xs[0...i]) - (Σ xs[(i+1)..|xs|]) |
   in O(n) time and space
 
   As a sidenote, I recall a similar problem was discussed by Guy L. Steel, see here
@@ -168,7 +168,7 @@ module Fulcrum where
   
   open import Data.Integer using (ℤ; _+_; _-_; ∣_∣)
   open ℤ renaming (pos to +_)
-  open import Data.Integer.Properties using (+-comm; +-assoc)
+  open import Data.Integer.Properties using (+-comm; +-assoc; +-0-isCommutativeMonoid)
 
   open import Data.Sign using (Sign)
   
@@ -177,12 +177,15 @@ module Fulcrum where
   
   open import Data.Fin using (Fin; zero; suc; raise; fromℕ≤″; toℕ)
   open import Data.Fin.Properties using (bounded)
-  
-  open import Algebra using (Monoid; CommutativeMonoid)
-  
+
   open import Relation.Nullary using (Dec; yes; no)
   open import Relation.Binary.PropositionalEquality using (_≡_; refl)
   open import Relation.Binary.HeterogeneousEquality using (_≅_; refl)
+
+  open import Relation.Binary using (Rel; Setoid)
+
+  open import Algebra using (Monoid; CommutativeMonoid)
+  open import Algebra.Structures
 
 
   -- A proof that an element is minimal, from xs, and its location
@@ -211,10 +214,35 @@ module Fulcrum where
   isMin-to-Fin (keep m _) | i , p = (suc i) , (there p)
   isMin-to-Fin (new m _) = zero , here
 
+
+
   -- now on to fulcrum values
 
+  -- some algebra
+  module MonoidFold {a} {A : Set a} {_∙_} {ε : A} (M : IsMonoid _≡_ _∙_ ε) where
+    foldm : {n : ℕ} → Vec A n → A
+    foldm = foldr _ _∙_ ε
+
+    foldm-lemma : {n : ℕ} → (x : A) → (xs : Vec A n) → foldm (x ∷ xs) ≡ x ∙ foldm xs
+    foldm-lemma x [] = refl
+    foldm-lemma x (x₁ ∷ xs) rewrite foldm-lemma x₁ xs = refl
+
+  module CommutMonoidFold {a} {A : Set a} {_∙_} {ε : A} (M : IsCommutativeMonoid _≡_ _∙_ ε) where
+    open CommutativeMonoid (record { isCommutativeMonoid = M }) using (isMonoid; comm)
+    open MonoidFold isMonoid
+
+    commut-foldm-lemma : {n : ℕ} → (x : A) → (xs : Vec A n) → foldm (x ∷ xs) ≡ (foldm xs ∙ x)
+    commut-foldm-lemma x [] = comm x ε
+    commut-foldm-lemma x (x₁ ∷ xs) rewrite commut-foldm-lemma x₁ xs
+                                         | comm x (foldr _ _∙_ ε xs ∙ x₁)
+                                         = refl
+
+  -- in particular, we care about sum
+  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid))
+  open CommutMonoidFold (+-0-isCommutativeMonoid)
+
   sum : {n : ℕ} (xs : Vec ℤ n) → ℤ
-  sum = foldr _ _+_ (+ 0)
+  sum = foldm
 
   -- the given definition of fulcrum values
   fv : (m {n} : ℕ) (xs : Vec ℤ n) → m ≤″ n → ℕ
@@ -224,7 +252,6 @@ module Fulcrum where
   split-vec : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → Vec ℤ n × Vec ℤ k
   split-vec n xs refl = take n xs , drop n xs
 
-  
 
 
   -- store the first part in reverse order
