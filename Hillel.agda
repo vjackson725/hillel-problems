@@ -161,7 +161,7 @@ module Zippers where
   I started off with an approach like this, but worked out an even better way
 }-}
 module Fulcrum where
-  open import Agda.Primitive using (_⊔_; lzero)
+  open import Agda.Primitive using (_⊔_; lzero; lsuc)
   
   open import Data.Product renaming (proj₁ to fst; proj₂ to snd; map to mapΣ) using (Σ; _,_; ∃; _×_)
 
@@ -249,7 +249,7 @@ module Fulcrum where
   fv m xs (Data.Nat.less-than-or-equal refl) = ∣ sum (take m xs) - sum (drop m xs) ∣
 
 
-  -- fvs a different way
+  -- fv a different way
   split-vec : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → Vec ℤ n × Vec ℤ k
   split-vec n xs refl = take n xs , drop n xs
 
@@ -271,35 +271,37 @@ module Fulcrum where
     splits-pair₊ (as , x ∷ bs) = x ∷ as , bs
 
 
-  -- now, let's look at a similar (but rather overspecified) setup on ℤ
-  fv-pair₀ : (z : ℤ) → Σ (ℤ × ℤ) (λ { (a , b) → a ≡ (+ 0) × b ≡ z })
-  fv-pair₀ z = (+ 0 , z) , (refl , refl)
+  -- now, let's look at a similar setup, but augmented with ℤ
+  fv-pair₀ : {n : ℕ} → Vec ℤ n → ℤ × (Vec ℤ 0 × Vec ℤ n) × ℤ
+  fv-pair₀ xs = + 0 , ([] , xs) , sum xs
 
-  fv-pair₊ : {n : ℕ} {x a' b' : ℤ} → Σ (ℤ × ℤ) (λ { (a , b) → (a ≡ a') × (b ≡ x + b') }) → Σ (ℤ × ℤ) (λ { (a , b) → (a ≡ a' + x) × (b ≡ b') })
-  fv-pair₊ {_} {x} {a'} {b'} ((_ , _) , (refl , refl)) = (a' + x , b') , (refl , refl)
-
-  {-
-    A good question would be, why bother specifying the functions that much?
-
-    Well, if you look carefully, you might notice that the fv-pair functions are quite similar to splits-pair functions.
-    Indeed, the conditions on the fv-pair are analogous to the suc conditions on splits-pair, in the specific sense
-    that what we actually have here is a functor.
-  -}
+  fv-pair₊ : {m n : ℕ} → ℤ × (Vec ℤ m × Vec ℤ (suc n)) × ℤ → ℤ × (Vec ℤ (suc m) × Vec ℤ n) × ℤ
+  fv-pair₊ (l , (prev , x ∷ post) , r) = (l + x) , (x ∷ prev , post) , (r - x)
 
 
-  -- still working out how to use this fact...
-  generate-fv-pairs : {n : ℕ} → Vec ℤ n → Vec (ℤ × ℤ) n
-  generate-fv-pairs xs = {!!}
+  -- TODO: functors and naturality
+
+  -- TODO: thinking
+  data SumPairs : {m n : ℕ} → Vec ℤ m → Vec ℤ n → Set where
+    α : {n : ℕ} → (xs : Vec ℤ n) → SumPairs [] xs
+    _⊕_ : {m n : ℕ} {prev : Vec ℤ m} {post : Vec ℤ (suc n)} {z : ℤ} → SumPairs prev (z ∷ post) → SumPairs (z ∷ prev) post
+
+
+  project-sums : {m n : ℕ} → ℤ × (Vec ℤ m × Vec ℤ n) × ℤ → ℤ × ℤ
+  project-sums (a , _ , b) = a , b
+
+  fv-pairs : {n : ℕ} → Vec ℤ n → Vec (ℤ × ℤ) (suc n)
+  fv-pairs xs with fv-pair₀ xs
+  fv-pairs [] | ε = [ project-sums ε ]
+  fv-pairs (x ∷ xs) | a , ([] , x' ∷ xs') , b = {!!}
 
 
 
   -- we can compute the value of _every_ fv, in 𝓞(n) time and space, and return the list of all of them
   every-fv : {n : ℕ} → Vec ℤ n → Vec ℕ n
-  every-fv {n} xs = let pairs = generate-fv-pairs xs          -- 𝓞(n)
-                        diffs = map (λ { (a , b) → a - b }) pairs -- 𝓞(n)
-                        fvs   = map ∣_∣ diffs                 -- 𝓞(n)
-                     in fvs
+  every-fv {n} xs = let pairs = {!!}          -- 𝓞(n)
+                     in map (λ { (a , b) → ∣ a - b ∣ }) pairs
 
-  -- IsMin is prima-facie evidence that z is in the list, and where it is in the list (see isMin-to-Fin)
+  -- IsMin is prima-facie evidence that z is minimum, in the list, and gives where it is in the list (see isMin-to-Fin)
   fulcrum : {m : ℕ} → (xs : Vec ℤ (suc m)) → Σ ℕ (λ z → IsMin z (every-fv xs))
   fulcrum {m} xs = find-min (every-fv xs)
