@@ -212,16 +212,19 @@ module Fulcrum where
   isMin-to-Fin (new m _) = zero , here
 
   -- now on to fulcrum values
-     
-  -- the given definition of fulcrum values
-  fv : (m {n} : ℕ) (xs : Vec ℤ (suc n)) → m <″ (suc n) → ℕ
-  fv m xs (Data.Nat.less-than-or-equal refl) = ∣ foldr _ _+_ (+ 0) (take (suc m) xs) - foldr _ _+_ (+ 0) (drop (suc m) xs) ∣
 
+  sum : {n : ℕ} (xs : Vec ℤ n) → ℤ
+  sum = foldr _ _+_ (+ 0)
+
+  -- the given definition of fulcrum values
+  fv : (m {n} : ℕ) (xs : Vec ℤ n) → m ≤″ n → ℕ
+  fv m xs (Data.Nat.less-than-or-equal refl) = ∣ sum (take m xs) - sum (drop m xs) ∣
 
 
   split-vec : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → Vec ℤ n × Vec ℤ k
   split-vec n xs refl = take n xs , drop n xs
 
+  
 
 
   -- store the first part in reverse order
