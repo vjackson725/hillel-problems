@@ -161,7 +161,7 @@ module Zippers where
 module Fulcrum where
   open import Agda.Primitive using (_⊔_; lzero)
   
-  open import Data.Product renaming (proj₁ to fst; proj₂ to snd) using (Σ; _,_; ∃; _×_)
+  open import Data.Product renaming (proj₁ to fst; proj₂ to snd; map to mapΣ) using (Σ; _,_; ∃; _×_)
 
   open import Data.Nat using (ℕ; _≤_; zero; suc; _≤?_; _≟_; _>_; _<″_; _≤″_; _∸_) renaming (_+_ to _ℕ+_)
   open import Data.Nat.Properties using (+-suc; +-identityʳ; ≰⇒>; ≤⇒≤″; m+n∸n≡m)
@@ -238,11 +238,9 @@ module Fulcrum where
                                          = refl
 
   -- in particular, we care about sum
-  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid))
+  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) renaming (foldm to sum)
   open CommutMonoidFold (+-0-isCommutativeMonoid)
 
-  sum : {n : ℕ} (xs : Vec ℤ n) → ℤ
-  sum = foldm
 
   -- the given definition of fulcrum values
   fv : (m {n} : ℕ) (xs : Vec ℤ n) → m ≤″ n → ℕ
@@ -252,6 +250,12 @@ module Fulcrum where
   split-vec : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → Vec ℤ n × Vec ℤ k
   split-vec n xs refl = take n xs , drop n xs
 
+  split-sums : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → ℤ × ℤ
+  split-sums n xs refl = mapΣ sum sum (split-vec n xs refl)
+
+  fv' : (m {n} : ℕ) (xs : Vec ℤ n) → m ≤″ n → ℕ
+  fv' m xs (_≤″_.less-than-or-equal refl) with split-sums m xs refl
+  fv' m xs (_≤″_.less-than-or-equal refl) | a , b = ∣ a - b ∣
 
 
   -- store the first part in reverse order
