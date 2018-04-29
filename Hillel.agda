@@ -162,33 +162,38 @@ module Zippers where
 }-}
 module Fulcrum where
   open import Agda.Primitive using (_⊔_; lzero; lsuc)
-  
-  open import Data.Product renaming (proj₁ to fst; proj₂ to snd; map to mapΣ) using (Σ; _,_; ∃; _×_)
+  open import Level using (Lift; lift)
+
+  open import Data.Product renaming (proj₁ to fst; proj₂ to snd; map to mapΣ) using (Σ; _,_; ∃; ∃₂; _×_)
 
   open import Data.Nat using (ℕ; _≤_; zero; suc; _≤?_; _≟_; _>_; _<″_; _≤″_; _∸_) renaming (_+_ to _ℕ+_)
-  open import Data.Nat.Properties using (+-suc; +-identityʳ; ≰⇒>; ≤⇒≤″; m+n∸n≡m)
+  open import Data.Nat.Properties using (+-suc; ≰⇒>; ≤⇒≤″; m+n∸n≡m) renaming (+-identityʳ to ℕ+-identityʳ)
   
-  open import Data.Integer using (ℤ; _+_; _-_; ∣_∣)
-  open ℤ renaming (pos to +_)
-  open import Data.Integer.Properties using (+-comm; +-assoc; +-0-isCommutativeMonoid)
+  open import Data.Integer using (ℤ; _+_; -_; _-_; ∣_∣)
+  open ℤ using () renaming (pos to +_)
+  open import Data.Integer.Properties using (+-comm; +-assoc; +-0-isCommutativeMonoid; +-inverseʳ; +-inverseˡ; +-identityˡ; +-identityʳ)
 
   open import Data.Sign using (Sign)
   
-  open import Data.Vec using (Vec; []; _∷_; reverse; zipWith; map; [_]; _[_]=_; here; there; take; drop; _++_; foldr)
+  open import Data.Vec using (Vec; []; _∷_; reverse; zipWith; map; [_]; _[_]=_; here; there; splitAt; take; drop; _++_; foldr)
   open import Data.Vec.Properties using ()
   
   open import Data.Fin using (Fin; zero; suc; raise; fromℕ≤″; toℕ)
   open import Data.Fin.Properties using (bounded)
 
   open import Relation.Nullary using (Dec; yes; no)
-  open import Relation.Binary.PropositionalEquality using (_≡_; refl)
+  open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym)
   open import Relation.Binary.HeterogeneousEquality using (_≅_; refl)
 
   open import Relation.Binary using (Rel; Setoid)
 
   open import Algebra using (Monoid; CommutativeMonoid)
-  open import Algebra.Structures
+  open import Algebra.Structures using (IsMonoid; IsCommutativeMonoid)
 
+  data ⊥ : Set where
+  
+  record ⊤ : Set where
+    constructor tt
 
   -- A proof that an element is minimal, from xs, and its location
   data IsMin : {n : ℕ} → ℕ → (xs : Vec ℕ (suc n)) → Set where
@@ -240,28 +245,20 @@ module Fulcrum where
                                          = refl
 
   -- in particular, we care about sum
-  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) using () renaming (foldm to sum; foldm-lemma to sum-lemmaˡ)
-  open CommutMonoidFold (+-0-isCommutativeMonoid) using () renaming (commut-foldm-lemma to sum-lemmaʳ)
+  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) using () renaming (foldm to sum)
 
 
   -- the given definition of fulcrum values
   fv : (m {n} : ℕ) (xs : Vec ℤ n) → m ≤″ n → ℕ
   fv m xs (Data.Nat.less-than-or-equal refl) = ∣ sum (take m xs) - sum (drop m xs) ∣
 
+  -- fv in several steps
+  fv' : (m {n} : ℕ) (xs : Vec ℤ (m ℕ+ n)) → ℕ
+  fv' m xs with splitAt m xs
+  fv' m .(ys ++ zs) | ys , zs , refl with sum ys | sum zs
+  ... | a | b = ∣ a - b ∣
 
-  -- fv a different way
-  split-vec : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → Vec ℤ n × Vec ℤ k
-  split-vec n xs refl = take n xs , drop n xs
-
-  split-sums : ({m} n {k} : ℕ) → Vec ℤ m → n ℕ+ k ≡ m → ℤ × ℤ
-  split-sums n xs refl = mapΣ sum sum (split-vec n xs refl)
-
-  fv' : (m {n} : ℕ) (xs : Vec ℤ n) → m ≤″ n → ℕ
-  fv' m xs (_≤″_.less-than-or-equal refl) with split-sums m xs refl
-  fv' m xs (_≤″_.less-than-or-equal refl) | a , b = ∣ a - b ∣
-
-
-  -- here's a setup which generates all the pairs
+  -- here's a setup which generates all the pairs in order, but with the first part reversed
   -- (in a generic way so we get theorems for free)
   module _ {a} {A : Set a} where
     splits-pair₀ : {n : ℕ} → Vec A n → Vec A 0 × Vec A n
@@ -270,35 +267,92 @@ module Fulcrum where
     splits-pair₊ : {a b : ℕ} → Vec A a × Vec A (suc b) → Vec A (suc a) × Vec A b
     splits-pair₊ (as , x ∷ bs) = x ∷ as , bs
 
+    splits-pair-lemma :  {a b : ℕ} {z : A} (xs : Vec A a) (ys : Vec A b) → (p : Vec A (suc a) × Vec A b) →
+                         p ≡ splits-pair₊ (xs , z ∷ ys) →
+                         (fst p ≡ z ∷ xs) × (snd p ≡ ys)
+    splits-pair-lemma xs ys .(_ ∷ xs , ys) refl = refl , refl
 
   -- now, let's look at a similar setup, but augmented with ℤ
-  fv-pair₀ : {n : ℕ} → Vec ℤ n → ℤ × (Vec ℤ 0 × Vec ℤ n) × ℤ
-  fv-pair₀ xs = + 0 , ([] , xs) , sum xs
+  record Sums (m n : ℕ) : Set where
+    field
+      prev : Vec ℤ m
+      post : Vec ℤ n
+      a : ℤ
+      b : ℤ
+      a-proof : a ≡ sum prev
+      b-proof : b ≡ sum post
 
-  fv-pair₊ : {m n : ℕ} → ℤ × (Vec ℤ m × Vec ℤ (suc n)) × ℤ → ℤ × (Vec ℤ (suc m) × Vec ℤ n) × ℤ
-  fv-pair₊ (l , (prev , x ∷ post) , r) = (l + x) , (x ∷ prev , post) , (r - x)
+  fv-pair₀ : {n : ℕ} → Vec ℤ n → Sums 0 n
+  fv-pair₀ xs = record { prev = []
+                       ; post = xs
+                       ; a = + 0
+                       ; b = sum xs
+                       ; a-proof = refl
+                       ; b-proof = refl
+                       }
+
+  fv-pair₊ : {m n : ℕ} → Sums m (suc n) → Sums (suc m) n
+  fv-pair₊ record { prev = prev
+                  ; post = x ∷ post
+                  ; a = a
+                  ; b = b
+                  ; a-proof = refl
+                  ; b-proof = refl
+                  }
+                  = record { prev = x ∷ prev
+                           ; post = post
+                           ; a = x + a
+                           ; b = (- x) + b
+                           ; a-proof = refl
+                           ; b-proof = lemma x (sum post)
+                           }
+    where
+      lemma : (x y : ℤ) → (- x) + (x + y) ≡ y
+      lemma x y rewrite sym (+-assoc (- x) x y)
+                      | +-inverseˡ x
+                      | +-identityˡ y
+                      = refl
+
+{-
+
+The splitAt operation on lists can be done efficiently, but only for a single (m : ℕ) argument. You can't step the process without
+appending from the back, which is 𝓞(n), and makes computing every value 𝓞(n²).
+
+However, if you let the first list be reversed, you can easily step the operation in 𝓞(1) time, making computing every pair 𝓞(n).
+
+              xs , x ∷ ys  ---------------------->  xs ++ [ x ] , ys
+               
+                                      /\
+                                      ||
+                                      ||
+                                      \/
+                             
+               xsᵣ , x ∷ ys -----------------------> x ∷ xsᵣ , ys
+             
+If we then apply sum to each of these, they are the same value in each case, because _+_ is commutative.
+               
+ sum (take m xs) , sum (drop m xs) ---------> sum (take (suc m) xs) , sum (drop (suc m) xs)
+
+                                      ||
+                                      ||
+
+    (fst (f₋ m xs)) , sum (f₊ m xs) -----> sum (f₋ (suc m) xs) , sum (f₊ (suc m) xs)
+
+-}
 
 
-  -- TODO: functors and naturality
-
-  -- TODO: thinking
-  data SumPairs : {m n : ℕ} → Vec ℤ m → Vec ℤ n → Set where
-    α : {n : ℕ} → (xs : Vec ℤ n) → SumPairs [] xs
-    _⊕_ : {m n : ℕ} {prev : Vec ℤ m} {post : Vec ℤ (suc n)} {z : ℤ} → SumPairs prev (z ∷ post) → SumPairs (z ∷ prev) post
 
 
-  project-sums : {m n : ℕ} → ℤ × (Vec ℤ m × Vec ℤ n) × ℤ → ℤ × ℤ
-  project-sums (a , _ , b) = a , b
 
-  fv-pairs : {n : ℕ} → Vec ℤ n → Vec (ℤ × ℤ) (suc n)
-  fv-pairs xs with fv-pair₀ xs
-  fv-pairs [] | ε = [ project-sums ε ]
-  fv-pairs (x ∷ xs) | a , ([] , x' ∷ xs') , b = {!!}
+--  fv-pairs : {n : ℕ} → Vec ℤ n → Vec (ℤ × ℤ) (suc n)
+--  fv-pairs xs with fv-pair₀ xs
+--  fv-pairs [] | ε = [ project-sums ε ]
+--  fv-pairs (x ∷ xs) | a , ([] , x' ∷ xs') , b = {!!}
 
 
 
   -- we can compute the value of _every_ fv, in 𝓞(n) time and space, and return the list of all of them
-  every-fv : {n : ℕ} → Vec ℤ n → Vec ℕ n
+  every-fv : {n : ℕ} → (xs : Vec ℤ n) → Vec ℕ n
   every-fv {n} xs = let pairs = {!!}          -- 𝓞(n)
                      in map (λ { (a , b) → ∣ a - b ∣ }) pairs
 
