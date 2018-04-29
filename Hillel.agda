@@ -175,14 +175,14 @@ module Fulcrum where
 
   open import Data.Sign using (Sign)
   
-  open import Data.Vec using (Vec; []; _∷_; reverse; zipWith; map; [_]; _[_]=_; here; there; splitAt; take; drop; _++_; foldr)
+  open import Data.Vec using (Vec; []; _∷_; reverse; zipWith; map; [_]; _[_]=_; here; there; splitAt; take; drop; _++_; foldr; foldl)
   open import Data.Vec.Properties using ()
   
   open import Data.Fin using (Fin; zero; suc; raise; fromℕ≤″; toℕ)
   open import Data.Fin.Properties using (bounded)
 
   open import Relation.Nullary using (Dec; yes; no)
-  open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym)
+  open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong)
   open import Relation.Binary.HeterogeneousEquality using (_≅_; refl)
 
   open import Relation.Binary using (Rel; Setoid)
@@ -227,25 +227,53 @@ module Fulcrum where
 
   -- some algebra
   module MonoidFold {a} {A : Set a} {_∙_} {ε : A} (M : IsMonoid _≡_ _∙_ ε) where
-    foldm : {n : ℕ} → Vec A n → A
-    foldm = foldr _ _∙_ ε
+    foldmr : {n : ℕ} → A → Vec A n → A
+    foldmr a = foldr _ _∙_ a
 
-    foldm-lemma : {n : ℕ} → (x : A) → (xs : Vec A n) → foldm (x ∷ xs) ≡ x ∙ foldm xs
-    foldm-lemma x [] = refl
-    foldm-lemma x (x₁ ∷ xs) rewrite foldm-lemma x₁ xs = refl
+    foldmr-addˡ : {n : ℕ} → (x : A) (a : A) (xs : Vec A n) → foldmr a (x ∷ xs) ≡ x ∙ foldmr a xs
+    foldmr-addˡ x a [] = refl
+    foldmr-addˡ x a (x₁ ∷ xs) rewrite foldmr-addˡ x₁ a xs = refl
+
+    foldml : {n : ℕ} → A → Vec A n → A
+    foldml a = foldl _ _∙_ a
+
+    foldml-addʳ : {n : ℕ} (x : A) (a : A) (xs : Vec A n) → foldml a (x ∷ xs) ≡ foldml (a ∙ x) xs
+    foldml-addʳ x a xs = refl
 
   module CommutMonoidFold {a} {A : Set a} {_∙_} {ε : A} (M : IsCommutativeMonoid _≡_ _∙_ ε) where
-    open CommutativeMonoid (record { isCommutativeMonoid = M }) using (isMonoid; comm)
+    open CommutativeMonoid (record { isCommutativeMonoid = M }) using (isMonoid; comm; assoc)
     open MonoidFold isMonoid
 
-    commut-foldm-lemma : {n : ℕ} → (x : A) → (xs : Vec A n) → foldm (x ∷ xs) ≡ (foldm xs ∙ x)
-    commut-foldm-lemma x [] = comm x ε
-    commut-foldm-lemma x (x₁ ∷ xs) rewrite commut-foldm-lemma x₁ xs
-                                         | comm x (foldr _ _∙_ ε xs ∙ x₁)
-                                         = refl
+    foldml-addˡ : {n : ℕ} (x : A) (a : A) (xs : Vec A n) → foldml a (x ∷ xs) ≡ foldml (x ∙ a) xs
+    foldml-addˡ x a xs rewrite comm a x = refl
+
+    foldmr-addʳ : {n : ℕ} (x : A) (a : A) (xs : Vec A n) → foldmr a (x ∷ xs) ≡ (foldmr a xs ∙ x)
+    foldmr-addʳ x a [] = comm x a
+    foldmr-addʳ x a (x₁ ∷ xs) rewrite foldmr-addʳ x₁ a xs
+                                    | comm x (foldr _ _∙_ a xs ∙ x₁)
+                                    = refl
+
+    foldml-initial-to-end : {n : ℕ} (x : A) (a : A) (xs : Vec A n) → foldml (a ∙ x) xs ≡ x ∙ foldml a xs
+    foldml-initial-to-end x a [] = comm a x
+    foldml-initial-to-end x a (x₁ ∷ xs) rewrite foldml-initial-to-end x₁ a xs
+                                              | foldml-initial-to-end x₁ (a ∙ x) xs
+                                              | foldml-initial-to-end x a xs
+                                              | sym (assoc x₁ x (foldl _ _∙_ a xs))
+                                              | sym (assoc x x₁ (foldl _ _∙_ a xs))
+                                              | comm x₁ x
+                                              = refl
+
+    foldm-same : {n : ℕ} (a : A) (xs : Vec A n) → foldmr a xs ≡ foldml a xs
+    foldm-same a [] = refl
+    foldm-same a (x ∷ xs) rewrite foldml-initial-to-end x a xs
+                                | foldm-same a xs
+                                = refl
 
   -- in particular, we care about sum
-  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) using () renaming (foldm to sum)
+  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) using () renaming (foldmr to sum-from)
+  
+  sum : {n : ℕ} → Vec ℤ n → ℤ
+  sum xs = sum-from (+ 0) xs
 
 
   -- the given definition of fulcrum values
@@ -271,6 +299,13 @@ module Fulcrum where
                          p ≡ splits-pair₊ (xs , z ∷ ys) →
                          (fst p ≡ z ∷ xs) × (snd p ≡ ys)
     splits-pair-lemma xs ys .(_ ∷ xs , ys) refl = refl , refl
+
+    splitAt′ : (m {n} : ℕ) → (xs : Vec A (m ℕ+ n)) → ∃₂ λ (ys : Vec A m) (zs : Vec A n) → (reverse ys) ++ zs ≡ xs
+    splitAt′ zero xs = [] , xs , refl
+    splitAt′ (suc m) (x ∷ xs) with splitAt′ m xs
+    splitAt′ (suc m) (x ∷ .(reverse ys ++ zs)) | ys , zs , refl = x ∷ ys , zs , cong (_++ zs)
+      {foldl (λ n → Vec A (suc n)) _ (x ∷ []) ys} {x ∷ reverse ys}
+      {!!}
 
   -- now, let's look at a similar setup, but augmented with ℤ
   record Sums (m n : ℕ) : Set where
