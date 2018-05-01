@@ -167,7 +167,7 @@ module Fulcrum where
   open import Data.Product renaming (proj₁ to fst; proj₂ to snd; map to mapΣ) using (Σ; _,_; ∃; ∃₂; _×_)
 
   open import Data.Nat using (ℕ; _≤_; zero; suc; _≤?_; _≟_; _>_; _<″_; _≤″_; _∸_) renaming (_+_ to _ℕ+_)
-  open import Data.Nat.Properties using (+-suc; ≰⇒>; ≤⇒≤″; m+n∸n≡m) renaming (+-identityʳ to ℕ+-identityʳ)
+  open import Data.Nat.Properties using (≰⇒>; ≤⇒≤″; m+n∸n≡m) renaming (+-suc to ℕ+-suc; +-identityʳ to ℕ+-identityʳ)
   
   open import Data.Integer using (ℤ; _+_; -_; _-_; ∣_∣)
   open ℤ using () renaming (pos to +_)
@@ -189,6 +189,9 @@ module Fulcrum where
 
   open import Algebra using (Monoid; CommutativeMonoid)
   open import Algebra.Structures using (IsMonoid; IsCommutativeMonoid)
+
+  open import Function using (_$_)
+
 
   data ⊥ : Set where
   
@@ -225,8 +228,69 @@ module Fulcrum where
 
   -- now on to fulcrum values
 
+
+  -- Unfortunately, we can't get any more powerful (i.e. saying {B : ℕ → Set b}) without function extensionality
+  module FoldLemmas {a b} {A : Set a} {B : Set b} (_∙_ : A → B → B) (_⊕_ : B → A → B)
+           (assoc : ∀ a b c → (a ∙ b) ⊕ c ≡ a ∙ (b ⊕ c))
+    where
+
+    foldl' : ∀ {n} → B → Vec A n → B
+    foldl' = foldl _ _⊕_
+
+    foldr' : ∀ {n} → B → Vec A n → B
+    foldr' = foldr _ _∙_
+
+    foldr-initialʳ-outerʳ : {n : ℕ} (x : A) (α : B) (xs : Vec A n) → (foldr' (α ⊕ x) xs) ≡ (foldr' α xs) ⊕ x
+    foldr-initialʳ-outerʳ x a [] = refl
+    foldr-initialʳ-outerʳ x a (x₁ ∷ xs) rewrite foldr-initialʳ-outerʳ x a xs
+                                              | sym $ assoc x₁ (foldr _ _∙_ a xs) x
+                                              = refl
+
+    foldl-initialˡ-outerˡ : {n : ℕ} (x : A) (b : B) (xs : Vec A n) → (foldl' (x ∙ b) xs) ≡ x ∙ (foldl' b xs)
+    foldl-initialˡ-outerˡ x b [] = refl
+    foldl-initialˡ-outerˡ x b (x₁ ∷ xs) rewrite assoc x b x₁
+                                              | foldl-initialˡ-outerˡ x (b ⊕ x₁) xs
+                                              = refl
+
+    module CommutFoldLemmas (comm : ∀ a b → a ∙ b ≡ b ⊕ a) where
+      foldl-initialʳ-outerʳ : {n : ℕ} (x : A) (b : B) (xs : Vec A n) → foldl' (b ⊕ x) xs ≡ foldl' b xs ⊕ x
+      foldl-initialʳ-outerʳ x b xs rewrite sym $ comm x b
+                                          | foldl-initialˡ-outerˡ x b xs
+                                          | comm x (foldl' b xs)
+                                          = refl
+  
+      foldl-initialʳ-outerˡ : {n : ℕ} (x : A) (b : B) (xs : Vec A n) → foldl' (b ⊕ x) xs ≡ x ∙ foldl' b xs
+      foldl-initialʳ-outerˡ x b xs rewrite sym $ comm x b
+                                          | foldl-initialˡ-outerˡ x b xs
+                                          = refl
+  
+      foldl-initialˡ-outerʳ : {n : ℕ} (x : A) (b : B) (xs : Vec A n) → foldl' (x ∙ b) xs ≡ foldl' b xs ⊕ x
+      foldl-initialˡ-outerʳ x b xs rewrite foldl-initialˡ-outerˡ x b xs
+                                          | comm x (foldl' b xs)
+                                          = refl
+
+      foldr-initialˡ-outerˡ : {n : ℕ} (x : A) (b : B) (xs : Vec A n) → foldr' (x ∙ b) xs ≡ x ∙ foldr' b xs
+      foldr-initialˡ-outerˡ x a xs rewrite comm x a
+                                          | foldr-initialʳ-outerʳ x a xs
+                                          | comm x (foldr' a xs)
+                                          = refl
+  
+      foldr-initialʳ-outerˡ : {n : ℕ} (x : A) (b : B) (xs : Vec A n) → foldr' (b ⊕ x) xs ≡ x ∙ foldr' b xs
+      foldr-initialʳ-outerˡ x a xs rewrite comm x a
+                                          | foldr-initialʳ-outerʳ x a xs
+                                          | comm x (foldr' a xs)
+                                          = refl
+  
+      foldr-initialˡ-outerʳ : {n : ℕ} (x : A) (b : B) (xs : Vec A n) → foldr' (x ∙ b) xs ≡ foldr' b xs ⊕ x
+      foldr-initialˡ-outerʳ x a xs rewrite comm x a
+                                          | foldr-initialʳ-outerʳ x a xs
+                                          = refl
+
   -- some algebra
   module MonoidFold {a} {A : Set a} {_∙_} {ε : A} (M : IsMonoid _≡_ _∙_ ε) where
+    open Monoid (record { isMonoid = M }) using (assoc)
+    open FoldLemmas _∙_ _∙_ assoc
+      
     foldmr : {n : ℕ} → A → Vec A n → A
     foldmr a = foldr _ _∙_ a
 
@@ -244,6 +308,9 @@ module Fulcrum where
     open CommutativeMonoid (record { isCommutativeMonoid = M }) using (isMonoid; comm; assoc)
     open MonoidFold isMonoid
 
+    open FoldLemmas _∙_ _∙_ assoc
+    open CommutFoldLemmas comm
+
     foldml-addˡ : {n : ℕ} (x : A) (a : A) (xs : Vec A n) → foldml a (x ∷ xs) ≡ foldml (x ∙ a) xs
     foldml-addˡ x a xs rewrite comm a x = refl
 
@@ -253,37 +320,31 @@ module Fulcrum where
                                     | comm x (foldr _ _∙_ a xs ∙ x₁)
                                     = refl
 
-    foldml-initial-to-end : {n : ℕ} (x : A) (a : A) (xs : Vec A n) → foldml (a ∙ x) xs ≡ x ∙ foldml a xs
-    foldml-initial-to-end x a [] = comm a x
-    foldml-initial-to-end x a (x₁ ∷ xs) rewrite foldml-initial-to-end x₁ a xs
-                                              | foldml-initial-to-end x₁ (a ∙ x) xs
-                                              | foldml-initial-to-end x a xs
-                                              | sym (assoc x₁ x (foldl _ _∙_ a xs))
-                                              | sym (assoc x x₁ (foldl _ _∙_ a xs))
-                                              | comm x₁ x
-                                              = refl
-
+    -- under a commutative operation, a fold is the same
     foldm-same : {n : ℕ} (a : A) (xs : Vec A n) → foldmr a xs ≡ foldml a xs
     foldm-same a [] = refl
-    foldm-same a (x ∷ xs) rewrite foldml-initial-to-end x a xs
+    foldm-same a (x ∷ xs) rewrite foldl-initialʳ-outerˡ x a xs
                                 | foldm-same a xs
                                 = refl
 
   -- in particular, we care about sum
-  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) using () renaming (foldmr to sum-from)
+  open MonoidFold (IsCommutativeMonoid.isMonoid (+-0-isCommutativeMonoid)) using () renaming (foldml to suml-from; foldmr to sumr-from)
   
-  sum : {n : ℕ} → Vec ℤ n → ℤ
-  sum xs = sum-from (+ 0) xs
+  suml : {n : ℕ} → Vec ℤ n → ℤ
+  suml xs = suml-from (+ 0) xs
+  
+  sumr : {n : ℕ} → Vec ℤ n → ℤ
+  sumr xs = sumr-from (+ 0) xs
 
 
   -- the given definition of fulcrum values
   fv : (m {n} : ℕ) (xs : Vec ℤ n) → m ≤″ n → ℕ
-  fv m xs (Data.Nat.less-than-or-equal refl) = ∣ sum (take m xs) - sum (drop m xs) ∣
+  fv m xs (Data.Nat.less-than-or-equal refl) = ∣ sumr (take m xs) - sumr (drop m xs) ∣
 
   -- fv in several steps
   fv' : (m {n} : ℕ) (xs : Vec ℤ (m ℕ+ n)) → ℕ
   fv' m xs with splitAt m xs
-  fv' m .(ys ++ zs) | ys , zs , refl with sum ys | sum zs
+  fv' m .(ys ++ zs) | ys , zs , refl with sumr ys | sumr zs
   ... | a | b = ∣ a - b ∣
 
   -- here's a setup which generates all the pairs in order, but with the first part reversed
@@ -300,6 +361,10 @@ module Fulcrum where
                          (fst p ≡ z ∷ xs) × (snd p ≡ ys)
     splits-pair-lemma xs ys .(_ ∷ xs , ys) refl = refl , refl
 
+    open Data.Vec using (_∷ʳ_)
+    
+--    open FoldLemmas {!!} {!!} {!!}
+
     splitAt′ : (m {n} : ℕ) → (xs : Vec A (m ℕ+ n)) → ∃₂ λ (ys : Vec A m) (zs : Vec A n) → (reverse ys) ++ zs ≡ xs
     splitAt′ zero xs = [] , xs , refl
     splitAt′ (suc m) (x ∷ xs) with splitAt′ m xs
@@ -314,14 +379,14 @@ module Fulcrum where
       post : Vec ℤ n
       a : ℤ
       b : ℤ
-      a-proof : a ≡ sum prev
-      b-proof : b ≡ sum post
+      a-proof : a ≡ sumr prev
+      b-proof : b ≡ sumr post
 
   fv-pair₀ : {n : ℕ} → Vec ℤ n → Sums 0 n
   fv-pair₀ xs = record { prev = []
                        ; post = xs
                        ; a = + 0
-                       ; b = sum xs
+                       ; b = sumr xs
                        ; a-proof = refl
                        ; b-proof = refl
                        }
@@ -339,7 +404,7 @@ module Fulcrum where
                            ; a = x + a
                            ; b = (- x) + b
                            ; a-proof = refl
-                           ; b-proof = lemma x (sum post)
+                           ; b-proof = lemma x (sumr post)
                            }
     where
       lemma : (x y : ℤ) → (- x) + (x + y) ≡ y
@@ -371,7 +436,7 @@ If we then apply sum to each of these, they are the same value in each case, bec
                                       ||
                                       ||
 
-    (fst (f₋ m xs)) , sum (f₊ m xs) -----> sum (f₋ (suc m) xs) , sum (f₊ (suc m) xs)
+      sum (f₋ m xs) , sum (f₊ m xs) -----> sum (f₋ (suc m) xs) , sum (f₊ (suc m) xs)
 
 -}
 
