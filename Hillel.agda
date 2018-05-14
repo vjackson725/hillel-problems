@@ -53,7 +53,7 @@ module Unique where
   open import Data.List.All renaming (map to All-map)
   open import Data.List.Any.Properties using (++⁺ʳ)
 
-  -- assume we have decidable inequality
+  -- assume we have decidable equality
   module _ {c ℓ} (S : DecSetoid c ℓ) where
     open import Data.List.Membership.DecSetoid S
 
@@ -94,7 +94,7 @@ module Unique where
 
   Find the i that minimises
     | (Σ xs[0..=i]) - (Σ xs[(i+1)..|xs|]) |
-  in O(n) time and space
+  in 𝓞(n) time and space
 
   I solve the generalised version where we start with i = 0
 
@@ -105,21 +105,19 @@ module Unique where
 module Fulcrum where
   open import Data.Product using (Σ; ∃; ∃₂; _×_; _,_; proj₁; proj₂)
 
-  open import Data.Vec using (Vec; []; _∷_; foldr; foldr₁; [_]; _[_]=_; here; there; map; splitAt; _++_)
-  open import Data.Vec.Properties using (map-∘)
+  open import Data.Vec using (Vec; []; _∷_; foldr; [_]; _[_]=_; here; there; map; _++_; splitAt; take; drop)
 
   open import Data.Integer using (ℤ; _+_; +_; _-_; -_; ∣_∣)
   open import Data.Integer.Properties using (+-identityˡ; +-identityʳ; +-inverseˡ; +-inverseʳ; +-comm; +-assoc)
 
-  open import Data.Nat using (ℕ; zero; suc; _∸_; _≤″_; _≤_; _≤?_; _>_;  _<″_; _⊓_; pred) renaming (_+_ to _ℕ+_)
-  open import Data.Nat.Properties using (≰⇒>; ≰⇒≥; m≤n⇒m⊓n≡m; m≤n⇒n⊓m≡m; n∸n≡0; ⊓-isSemigroup) renaming (+-identityʳ to ℕ+-identityʳ)
+  open import Data.Nat using (ℕ; zero; suc; _≤″_; _≤_; _≤?_; _>_) renaming (_+_ to _ℕ+_)
+  open import Data.Nat.Properties using (≰⇒>; ≰⇒≥)
 
-  open import Data.Fin using (Fin; zero; suc)
+  open import Data.Fin using (Fin; zero; suc; fromℕ≤″) 
+  open import Data.Fin.Properties using ()
 
   open import Relation.Nullary using (Dec; yes; no)
-  import Relation.Binary.PropositionalEquality as P
-  open P using (_≡_; refl; sym; cong)
-
+  open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym; cong)
 
   -- to start, finding the minimum of Vecs
 
@@ -152,7 +150,7 @@ module Fulcrum where
 
   -- and now, to actually write a fulcrum
 
-  sum : {n : ℕ} → Vec ℤ n → ℤ
+  sum : ∀ {n} → Vec ℤ n → ℤ
   sum = foldr _ _+_ (+ 0)
 
   scanl : ∀ {a b} {A : Set a} {B : Set b} {m} →
@@ -160,76 +158,42 @@ module Fulcrum where
   scanl _∙_ b []       = b ∷ []
   scanl _∙_ b (a ∷ xs) = b ∷ scanl _∙_ (b ∙ a) xs
 
-
-  -- amusingly, it turns out writing the specifying function was more annoying than writing the fast one
-
-  idx-adjust : ∀ {n} → Σ ℕ (λ m → m ≤″ n) → Σ ℕ (λ m → m ≤″ suc n)
-  idx-adjust (m , _≤″_.less-than-or-equal refl) = suc m , _≤″_.less-than-or-equal refl
-
-  -- note this is 𝓞(n²)
-  indicies : {n : ℕ} → Vec (∃ λ (m : ℕ) → m ≤″ n) n
-  indicies {zero} = []
-  indicies {suc n} = (1 , _≤″_.less-than-or-equal refl) ∷ (map idx-adjust indicies)
-
-  sum-sides : {n : ℕ} → Vec ℤ n → ∃ (λ m → m ≤″ n) → ℤ × ℤ
-  sum-sides xs (m , _≤″_.less-than-or-equal refl) with splitAt m xs
-  sum-sides .(ys ++ zs) (m , _≤″_.less-than-or-equal refl) | ys , zs , refl = sum ys , sum zs
-
-  fulcrum-slow : {n : ℕ} → Vec ℤ n → ∃₂ λ (xs : Vec ℕ (suc n)) (m : ℕ) → IsMin m xs
-  fulcrum-slow {n} xs = let sums = map (sum-sides (+ 0 ∷ xs)) indicies
-                            fulcrums = map (λ { (a , b) → ∣ a - b ∣ }) sums
-                         in fulcrums , find-min fulcrums
-
-
   -- Fast Fulcrum
+
+  -- make fulcrum pairs, which start with a base number, by a scan
+  -- Sketch:
+  --   essentially, you can just pass the current sums along, add x to the left, subtract x from the right
+  --   and this gets you the new sums for that index
+  make-fulcrum-pairs : ∀ {n} → ℤ → Vec ℤ n → Vec (ℤ × ℤ) (suc n)
+  make-fulcrum-pairs base xs = scanl (λ { (sumₗ , sumᵣ) x → sumₗ + x , sumᵣ - x }) (base , sum xs) xs
+
   fulcrum : {n : ℕ} → Vec ℤ n → ∃₂ λ (xs : Vec ℕ (suc n)) (m : ℕ) → IsMin m xs
-  fulcrum xs = let sums = scanl (λ { (sumₗ , sumᵣ) x → sumₗ + x , sumᵣ - x }) (+ 0 , sum xs) xs
+  fulcrum xs = let sums = make-fulcrum-pairs (+ 0) xs
                    fulcrums = map (λ { (sumₗ , sumᵣ) → ∣ sumₗ - sumᵣ ∣ }) sums
                 in fulcrums , find-min fulcrums
 
+  -- Proof of Correctness
 
-  -- Proof
+  theP : ∀ {x} {X Y : Set x} → X ≡ Y → X → Y
+  theP refl x = x
 
-  open P.≡-Reasoning
+  s≤″s : ∀ {m n} → m ≤″ n → suc m ≤″ suc n
+  s≤″s (_≤″_.less-than-or-equal refl) = _≤″_.less-than-or-equal refl
 
-  help : ∀ n (xs : Vec ℤ n) x z →
-       map (sum-sides (z + x ∷ xs)) (map idx-adjust indicies)
-       ≡
-       map (sum-sides (z ∷ x ∷ xs))
-         (map idx-adjust (map idx-adjust indicies))
-  help n xs x z rewrite sym (map-∘ idx-adjust idx-adjust (indicies {n}))
-                      | sym (map-∘ (sum-sides (z + x ∷ xs)) idx-adjust (indicies {n}))
-                      | sym (map-∘ (sum-sides (z ∷ x ∷ xs)) (λ x → idx-adjust (idx-adjust x)) (indicies {n}))
-                      = cong (λ f → map f (indicies {n}))  {!!}
-
-  -- proving the core logic is the same
-  fulcrum-core-equiv : ∀ {m} (z : ℤ) (xs : Vec ℤ m) →
-               scanl
-                 (λ { (sumₗ , sumᵣ) x → sumₗ + x , sumᵣ + - x })
-                 (z , sum xs)
-                 xs
-               ≡
-               (z , + 0 + sum xs) ∷
-                 map (sum-sides (z ∷ xs))
-                   (map
-                     idx-adjust
-                     indicies)
-  fulcrum-core-equiv z [] = refl
-  fulcrum-core-equiv z (x ∷ xs) rewrite +-identityˡ (x + sum xs)
-                                      | +-identityˡ x
-                                      | +-identityʳ x
-                                      | +-comm x (sum xs)
-                                      | +-assoc (sum xs) x (- x)
-                                      | +-inverseʳ x
-                                      | +-identityʳ (sum xs)
-                                      | fulcrum-core-equiv (z + x) xs
-                                      | +-identityˡ (sum xs)
-                                      = cong (_ ∷_) (cong (_ ∷_) {!!})
-
-
-  fulcrum-equiv : {m : ℕ} → (xs : Vec ℤ m) → fulcrum xs ≡ fulcrum-slow xs
-  fulcrum-equiv {m} xs = begin
-                           fulcrum xs
-                         ≡⟨ {!!} ⟩
-                           fulcrum-slow xs
-                         ∎
+  -- The fulcrum pair at index m is the sums of the two halves the vec xs, divided at m
+  -- Have to start with a base of z for the induction to go through
+  make-fulcrum-pairs-correctness : ∀ m {n} (z : ℤ) (xs : Vec ℤ n) (i : m ≤″ n) →
+               (make-fulcrum-pairs z xs) [ fromℕ≤″ m (s≤″s i) ]= (
+                    z + sum (take m (theP (cong (Vec _) (sym (_≤″_.proof i))) xs)) ,
+                    sum (drop m (theP (cong (Vec _) (sym (_≤″_.proof i))) xs)))
+  make-fulcrum-pairs-correctness zero z [] (_≤″_.less-than-or-equal refl) rewrite +-identityʳ z = here
+  make-fulcrum-pairs-correctness zero z (x ∷ xs) (_≤″_.less-than-or-equal refl) rewrite +-identityʳ z = here
+  make-fulcrum-pairs-correctness (suc m) z (x ∷ xs) (_≤″_.less-than-or-equal refl) with make-fulcrum-pairs-correctness m (z + x) xs (_≤″_.less-than-or-equal refl)
+  ... | p with splitAt m xs
+  make-fulcrum-pairs-correctness (suc m) z (x ∷ xs@.(ys ++ zs)) (_≤″_.less-than-or-equal refl) | p | ys , zs , refl
+                           rewrite sym (+-assoc z x (sum ys))
+                                 | +-comm x (sum xs)
+                                 | +-assoc (sum xs) x (- x)
+                                 | +-inverseʳ x
+                                 | +-identityʳ (sum xs)
+                                 = there p
